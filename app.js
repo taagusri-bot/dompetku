@@ -236,7 +236,12 @@ const App = {
         type: 'info'
       },
 
-      statementFilterMonth: ''
+      statementFilterMonth: '',
+
+      // Filter & State Analisis Pengeluaran
+      analysisDaysRange: '7', // '7', '14', '30', 'custom'
+      analysisCustomDays: 7,
+      expandedGroupKey: null
     };
   },
 
@@ -671,6 +676,153 @@ const App = {
       }
 
       return results.sort((a, b) => b.date.localeCompare(a.date));
+    },
+
+    // ================= ANALISIS PENGELUARAN COMPUTED =================
+    analysisDaysCount() {
+      if (this.analysisDaysRange === 'custom') {
+        const num = parseInt(this.analysisCustomDays, 10);
+        return isNaN(num) || num < 1 ? 1 : num;
+      }
+      return parseInt(this.analysisDaysRange, 10) || 7;
+    },
+
+    analysisStartDate() {
+      const now = new Date();
+      const past = new Date(now.getTime() - (this.analysisDaysCount - 1) * 24 * 60 * 60 * 1000);
+      const y = past.getFullYear();
+      const m = String(past.getMonth() + 1).padStart(2, '0');
+      const d = String(past.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    },
+
+    analysisFilteredExpenses() {
+      if (!this.state || !this.state.transactions) return [];
+      const start = this.analysisStartDate;
+      const end = this.todayStr;
+
+      return this.state.transactions.filter(t => {
+        if (t.type !== 'expense') return false;
+        return t.date >= start && t.date <= end;
+      });
+    },
+
+    analysisTotalExpense() {
+      return this.analysisFilteredExpenses.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    },
+
+    analysisDailyAverage() {
+      const days = Math.max(1, this.analysisDaysCount);
+      return Math.round(this.analysisTotalExpense / days);
+    },
+
+    analysisDailyStatus() {
+      const limit = (this.state && this.state.profile && this.state.profile.dailyLimit) || 50000;
+      return this.analysisDailyAverage <= limit ? 'aman' : 'over';
+    },
+
+    analysisGroupedRankings() {
+      const total = this.analysisTotalExpense;
+      const map = {};
+
+      this.analysisFilteredExpenses.forEach(t => {
+        const catInfo = this.detectItemCategory(t.note, t.category);
+        const amt = Number(t.amount) || 0;
+
+        if (!map[catInfo.key]) {
+          map[catInfo.key] = {
+            key: catInfo.key,
+            name: catInfo.name,
+            icon: catInfo.icon,
+            color: catInfo.color,
+            lightColor: catInfo.lightColor,
+            barColor: catInfo.barColor,
+            total: 0,
+            count: 0,
+            transactions: []
+          };
+        }
+
+        map[catInfo.key].total += amt;
+        map[catInfo.key].count += 1;
+        map[catInfo.key].transactions.push(t);
+      });
+
+      const groups = Object.values(map);
+      // Urutkan dari pengeluaran terbesar (Top Drain)
+      groups.sort((a, b) => b.total - a.total);
+
+      // Hitung persentase dan ranking
+      groups.forEach((g, index) => {
+        g.rank = index + 1;
+        g.percentage = total > 0 ? Math.round((g.total / total) * 100) : 0;
+        // Urutkan transaksi internal dari yang terbaru
+        g.transactions.sort((x, y) => {
+          if (x.date !== y.date) return y.date.localeCompare(x.date);
+          return (y.time || '').localeCompare(x.time || '');
+        });
+      });
+
+      return groups;
+    },
+
+    analysisTopSpending() {
+      if (this.analysisGroupedRankings && this.analysisGroupedRankings.length > 0) {
+        return this.analysisGroupedRankings[0];
+      }
+      return null;
+    },
+
+    analysisComposition() {
+      let pokok = 0;
+      let jajan = 0;
+      let cicilan = 0;
+      let tabungan = 0;
+
+      this.analysisFilteredExpenses.forEach(t => {
+        const amt = Number(t.amount) || 0;
+        const n = (t.note || '').toLowerCase();
+        if (t.category === 'cicilan' || n.includes('utang') || n.includes('cicilan') || n.includes('kos')) {
+          cicilan += amt;
+        } else if (t.category === 'jajan') {
+          jajan += amt;
+        } else {
+          pokok += amt;
+        }
+        if (t.wallet === 'tabungan') {
+          tabungan += amt;
+        }
+      });
+
+      const total = this.analysisTotalExpense || 1;
+      return {
+        pokok,
+        pokokPct: Math.round((pokok / total) * 100),
+        jajan,
+        jajanPct: Math.round((jajan / total) * 100),
+        cicilan,
+        cicilanPct: Math.round((cicilan / total) * 100),
+        tabungan
+      };
+    },
+
+    analysisInsightText() {
+      if (!this.analysisTopSpending || this.analysisTotalExpense === 0) {
+        return `Belum ada pengeluaran operasional yang tercatat selama ${this.analysisDaysCount} hari terakhir. Posisi keuangan Anda sangat hemat dan terkontrol!`;
+      }
+      const top = this.analysisTopSpending;
+      const isAman = this.analysisDailyStatus === 'aman';
+      const limit = (this.state && this.state.profile && this.state.profile.dailyLimit) || 50000;
+
+      let msg = `Dalam <b>${this.analysisDaysCount} hari terakhir</b>, pos yang paling banyak menyedot uang adalah <b>${top.name}</b> dengan total <b>${formatRupiah(top.total)}</b> (${top.percentage}% dari seluruh pengeluaran periode ini).`;
+
+      if (isAman) {
+        msg += ` Rata-rata belanja harian Anda <b>${formatRupiah(this.analysisDailyAverage)}/hari</b>, masih <b>DISIPLIN DI BAWAH BATAS</b> target ${formatRupiah(limit)}/hari. Pertahankan konsistensi ini! ✨`;
+      } else {
+        const selisih = this.analysisDailyAverage - limit;
+        msg += ` Rata-rata belanja Anda <b>${formatRupiah(this.analysisDailyAverage)}/hari</b>, terdeteksi <b>MELEBIHI BATAS TARGET</b> (${formatRupiah(limit)}/hari) sebesar +${formatRupiah(selisih)}/hari. Prioritaskan penghematan pada pos teratas. ⚠️`;
+      }
+      return msg;
     }
   },
 
@@ -1027,6 +1179,255 @@ const App = {
       link.click();
       document.body.removeChild(link);
       this.showToast('File CSV/Excel berhasil diunduh!', 'success');
+    },
+
+    // ================= ANALISIS PENGELUARAN METHODS =================
+    detectItemCategory(note = '', cat = 'pokok') {
+      const n = (note || '').toLowerCase().trim();
+
+      if (n.includes('galon') || n.includes('isi air') || n.includes('air minum') || n.includes('aqua')) {
+        return { 
+          key: 'galon', 
+          name: 'Isi Galon Air', 
+          icon: 'droplet', 
+          color: 'bg-sky-500 text-white', 
+          lightColor: 'bg-sky-50 text-sky-800 border-sky-200',
+          barColor: 'bg-sky-500'
+        };
+      }
+      if (n.includes('bensin') || n.includes('pertalite') || n.includes('pertamax') || n.includes('solar') || n.includes('spbu') || n.includes('bbm')) {
+        return { 
+          key: 'bensin', 
+          name: 'Bensin Kendaraan', 
+          icon: 'fuel', 
+          color: 'bg-amber-500 text-white', 
+          lightColor: 'bg-amber-50 text-amber-800 border-amber-200',
+          barColor: 'bg-amber-500'
+        };
+      }
+      if (n.includes('oli') || n.includes('servis') || n.includes('service') || n.includes('bengkel') || n.includes('tambal')) {
+        return { 
+          key: 'oli', 
+          name: 'Ganti Oli & Servis Motor', 
+          icon: 'wrench', 
+          color: 'bg-slate-700 text-white', 
+          lightColor: 'bg-slate-100 text-slate-800 border-slate-300',
+          barColor: 'bg-slate-700'
+        };
+      }
+      if (n.includes('rambut') || n.includes('cukur') || n.includes('barber') || n.includes('pangkas')) {
+        return { 
+          key: 'rambut', 
+          name: 'Potong Rambut', 
+          icon: 'scissors', 
+          color: 'bg-purple-600 text-white', 
+          lightColor: 'bg-purple-50 text-purple-800 border-purple-200',
+          barColor: 'bg-purple-600'
+        };
+      }
+      if (n.includes('kos') || n.includes('kost') || n.includes('kamar')) {
+        return { 
+          key: 'kos', 
+          name: 'Sewa Kos Bulanan', 
+          icon: 'home', 
+          color: 'bg-indigo-600 text-white', 
+          lightColor: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+          barColor: 'bg-indigo-600'
+        };
+      }
+      if (n.includes('pinjol')) {
+        return { 
+          key: 'pinjol', 
+          name: 'Cicilan Pinjol', 
+          icon: 'alert-circle', 
+          color: 'bg-rose-600 text-white', 
+          lightColor: 'bg-rose-50 text-rose-800 border-rose-200',
+          barColor: 'bg-rose-600'
+        };
+      }
+      if (n.includes('motor')) {
+        return { 
+          key: 'motor', 
+          name: 'Cicilan Motor', 
+          icon: 'bike', 
+          color: 'bg-blue-600 text-white', 
+          lightColor: 'bg-blue-50 text-blue-800 border-blue-200',
+          barColor: 'bg-blue-600'
+        };
+      }
+      if (n.includes('teman')) {
+        return { 
+          key: 'teman', 
+          name: 'Bayar Utang Teman', 
+          icon: 'users', 
+          color: 'bg-orange-600 text-white', 
+          lightColor: 'bg-orange-50 text-orange-800 border-orange-200',
+          barColor: 'bg-orange-600'
+        };
+      }
+      if (n.includes('ortu') || n.includes('orang tua') || n.includes('ibu') || n.includes('bapak')) {
+        return { 
+          key: 'ortu', 
+          name: 'Kirim Utang / Kasih Ortu', 
+          icon: 'heart', 
+          color: 'bg-pink-600 text-white', 
+          lightColor: 'bg-pink-50 text-pink-800 border-pink-200',
+          barColor: 'bg-pink-600'
+        };
+      }
+      if (n.includes('jajan') || n.includes('kopi') || n.includes('kafe') || n.includes('snack') || n.includes('camilan') || n.includes('rokok') || cat === 'jajan') {
+        return { 
+          key: 'jajan', 
+          name: 'Jajan, Kopi & Santai', 
+          icon: 'coffee', 
+          color: 'bg-amber-600 text-white', 
+          lightColor: 'bg-amber-50 text-amber-800 border-amber-200',
+          barColor: 'bg-amber-500'
+        };
+      }
+      if (n.includes('makan') || n.includes('nasi') || n.includes('lauk') || n.includes('sarapan') || n.includes('siang') || n.includes('malam') || n.includes('warung') || n.includes('resto')) {
+        return { 
+          key: 'makan', 
+          name: 'Makan Pokok Harian', 
+          icon: 'utensils', 
+          color: 'bg-emerald-600 text-white', 
+          lightColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+          barColor: 'bg-emerald-500'
+        };
+      }
+      if (n.includes('sembako') || n.includes('sabun') || n.includes('odol') || n.includes('belanja') || n.includes('pasar') || n.includes('supermarket')) {
+        return { 
+          key: 'sembako', 
+          name: 'Kebutuhan Pokok & Rumah', 
+          icon: 'shopping-cart', 
+          color: 'bg-teal-600 text-white', 
+          lightColor: 'bg-teal-50 text-teal-800 border-teal-200',
+          barColor: 'bg-teal-500'
+        };
+      }
+
+      const clean = note.trim() ? (note.trim().charAt(0).toUpperCase() + note.trim().slice(1)) : 'Pengeluaran Lain-lain';
+      return { 
+        key: 'other_' + clean.toLowerCase().replace(/\s+/g, '_'), 
+        name: clean, 
+        icon: 'receipt', 
+        color: 'bg-slate-600 text-white', 
+        lightColor: 'bg-slate-50 text-slate-700 border-slate-200',
+        barColor: 'bg-slate-500'
+      };
+    },
+
+    toggleGroupDetail(key) {
+      if (this.expandedGroupKey === key) {
+        this.expandedGroupKey = null;
+      } else {
+        this.expandedGroupKey = key;
+      }
+      this.$nextTick(() => this.initIcons());
+    },
+
+    applyQuickExpense(type) {
+      if (type === 'galon') {
+        this.txForm.note = 'Isi Galon Air';
+        this.txForm.amount = 5000;
+        this.txForm.category = 'pokok';
+        this.txForm.wallet = 'cash';
+      } else if (type === 'bensin') {
+        this.txForm.note = 'Bensin Kendaraan';
+        this.txForm.amount = 50000;
+        this.txForm.category = 'pokok';
+        this.txForm.wallet = 'cash';
+      } else if (type === 'makan') {
+        this.txForm.note = 'Makan Pokok Harian';
+        this.txForm.category = 'pokok';
+        this.txForm.wallet = 'cash';
+      } else if (type === 'jajan') {
+        this.txForm.note = 'Jajan / Kopi Santai';
+        this.txForm.category = 'jajan';
+        this.txForm.wallet = 'cash';
+      } else if (type === 'cukur') {
+        this.txForm.note = 'Potong Rambut';
+        this.txForm.amount = 35000;
+        this.txForm.category = 'pokok';
+        this.txForm.wallet = 'cash';
+      } else if (type === 'oli') {
+        this.txForm.note = 'Ganti Oli & Servis Motor';
+        this.txForm.amount = 100000;
+        this.txForm.category = 'pokok';
+        this.txForm.wallet = 'cash';
+      } else if (type === 'sembako') {
+        this.txForm.note = 'Belanja Kebutuhan Pokok';
+        this.txForm.category = 'pokok';
+        this.txForm.wallet = 'rekening';
+      } else {
+        this.txForm.note = '';
+      }
+    },
+
+    copyAnalysisSummary() {
+      if (!this.analysisGroupedRankings || this.analysisGroupedRankings.length === 0) {
+        alert('Belum ada transaksi pengeluaran pada rentang waktu ini.');
+        return;
+      }
+      let text = `📊 LAPORAN ANALISIS PENGELUARAN DOMPETKU\n`;
+      text += `Periode: ${this.analysisDaysCount} Hari Terakhir (${formatDateIndo(this.analysisStartDate)} s/d ${formatDateIndo(this.todayStr)})\n\n`;
+      text += `💰 Total Pengeluaran: ${formatRupiah(this.analysisTotalExpense)}\n`;
+      text += `⏱️ Rata-rata Harian: ${formatRupiah(this.analysisDailyAverage)}/hari (${this.analysisDailyStatus === 'aman' ? 'AMAN DI BAWAH BATAS' : 'OVER BUDGET'})\n\n`;
+      text += `🏆 PERINGKAT POS BELANJA TERBANYAK:\n`;
+      this.analysisGroupedRankings.forEach(g => {
+        text += `${g.rank}. ${g.name}: ${formatRupiah(g.total)} (${g.percentage}% - ${g.count}x transaksi)\n`;
+      });
+      text += `\n⚖️ KOMPOSISI BELANJA:\n`;
+      text += `- Kebutuhan Pokok: ${formatRupiah(this.analysisComposition.pokok)} (${this.analysisComposition.pokokPct}%)\n`;
+      text += `- Jajan & Santai: ${formatRupiah(this.analysisComposition.jajan)} (${this.analysisComposition.jajanPct}%)\n`;
+      if (this.analysisComposition.cicilan > 0) {
+        text += `- Cicilan & Utang: ${formatRupiah(this.analysisComposition.cicilan)} (${this.analysisComposition.cicilanPct}%)\n`;
+      }
+      text += `\n💡 Evaluasi: ${this.analysisDailyStatus === 'aman' ? 'Pengeluaran disiplin, pertahankan pola ini!' : 'Peringatan: Pos teratas menyedot anggaran paling besar, kendalikan frekuensi belanjanya.'}\n`;
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          this.showToast('📋 Ringkasan analisis berhasil disalin ke clipboard!', 'success');
+        }).catch(() => {
+          alert(text);
+        });
+      } else {
+        alert(text);
+      }
+    },
+
+    printAnalysis() {
+      window.print();
+    },
+
+    exportAnalysisCSV() {
+      if (this.analysisGroupedRankings.length === 0) {
+        alert('Belum ada data pengeluaran untuk diekspor!');
+        return;
+      }
+      let csv = '\uFEFF';
+      csv += `LAPORAN ANALISIS PENGELUARAN DOMPETKU (${this.analysisDaysCount} HARI TERAKHIR)\n`;
+      csv += `Periode: ${this.analysisStartDate} s/d ${this.todayStr}\n`;
+      csv += `Total Pengeluaran: ${formatRupiah(this.analysisTotalExpense)} | Rata-rata: ${formatRupiah(this.analysisDailyAverage)}/hari\n\n`;
+      csv += 'Peringkat,Pos Pengeluaran,Total Nominal,Persentase,Frekuensi Transaksi\n';
+      this.analysisGroupedRankings.forEach(g => {
+        csv += `"${g.rank}","${g.name}","${g.total}","${g.percentage}%","${g.count}x"\n`;
+      });
+      csv += '\nRINCIAN TRANSAKSI:\n';
+      csv += 'Tanggal,Waktu,Pos/Item,Nominal,Kantong,Kategori,Catatan\n';
+      this.analysisFilteredExpenses.forEach(t => {
+        csv += `"${t.date}","${t.time || ''}","${t.note}","${t.amount}","${t.wallet}","${t.category}","${t.note}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `Analisis_Pengeluaran_${this.analysisDaysCount}Hari_${this.todayStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      this.showToast('File CSV/Excel Analisis berhasil diunduh!', 'success');
     },
 
     downloadBackup() {

@@ -371,8 +371,8 @@
       <!-- 7. RIWAYAT TRANSAKSI TERAKHIR -->
       <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-bold text-slate-900">Catatan Mutasi Kas</h3>
-          <button @click="activeTab = 'statement'" class="text-xs text-teal-600 font-semibold hover:underline">Lihat Buku Kas →</button>
+          <h3 class="text-sm font-bold text-slate-900">Catatan Transaksi Terakhir</h3>
+          <button @click="activeTab = 'analysis'" class="text-xs text-teal-600 font-semibold hover:underline">Analisis Belanja →</button>
         </div>
 
         <div v-if="state.transactions.length === 0" class="text-center py-6 text-slate-400 text-xs">
@@ -416,112 +416,287 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- TAB 2: LAPORAN ARUS KAS DAY-BY-DAY (SIAP CETAK & PDF)         -->
+    <!-- TAB 2: LAPORAN ANALISIS PENGELUARAN & RANKING BELANJA          -->
     <!-- ============================================================ -->
-    <div v-show="activeTab === 'statement'" class="space-y-4">
+    <div v-show="activeTab === 'analysis'" class="space-y-4">
       
+      <!-- Panel Filter Rentang Hari & Aksi (no-print) -->
       <div class="no-print bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col space-y-3">
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="text-sm font-bold text-slate-900">Rekap Arus Kas Harian</h2>
-            <p class="text-xs text-slate-500">Posisi kas day-by-day</p>
+            <h2 class="text-sm font-bold text-slate-900 flex items-center space-x-1.5">
+              <i data-lucide="pie-chart" class="w-4 h-4 text-teal-600"></i>
+              <span>Analisis Pengeluaran Belanja</span>
+            </h2>
+            <p class="text-xs text-slate-500">Ketahui ke mana uang Anda paling banyak keluar</p>
           </div>
-          <input type="month" v-model="statementFilterMonth" class="text-xs border rounded-lg px-2 py-1 bg-slate-50 font-medium">
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+            {{ analysisDaysCount }} Hari
+          </span>
         </div>
 
-        <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-          <button @click="printStatement" class="w-full flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-teal-600 text-white font-bold text-xs shadow-md shadow-teal-600/20 active:scale-95 transition">
-            <i data-lucide="printer" class="w-4 h-4"></i>
-            <span>Cetak / Simpan PDF</span>
+        <!-- Filter Pilihan Rentang Hari -->
+        <div>
+          <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Pilih Rentang Evaluasi:</label>
+          <div class="grid grid-cols-4 gap-1.5">
+            <button @click="analysisDaysRange = '7'" 
+                    class="py-1.5 px-2 rounded-xl text-xs font-bold transition text-center"
+                    :class="analysisDaysRange === '7' ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'">
+              7 Hari
+            </button>
+            <button @click="analysisDaysRange = '14'" 
+                    class="py-1.5 px-2 rounded-xl text-xs font-bold transition text-center"
+                    :class="analysisDaysRange === '14' ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'">
+              14 Hari
+            </button>
+            <button @click="analysisDaysRange = '30'" 
+                    class="py-1.5 px-2 rounded-xl text-xs font-bold transition text-center"
+                    :class="analysisDaysRange === '30' ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'">
+              30 Hari
+            </button>
+            <button @click="analysisDaysRange = 'custom'" 
+                    class="py-1.5 px-2 rounded-xl text-xs font-bold transition text-center"
+                    :class="analysisDaysRange === 'custom' ? 'bg-teal-600 text-white shadow-md shadow-teal-600/20' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'">
+              Kustom
+            </button>
+          </div>
+        </div>
+
+        <!-- Input Jika Memilih Kustom Hari -->
+        <div v-if="analysisDaysRange === 'custom'" class="pt-2 border-t border-slate-100 flex items-center space-x-2">
+          <label class="text-xs font-medium text-slate-600 shrink-0">Berapa hari terakhir?</label>
+          <input type="number" min="1" max="365" v-model.number="analysisCustomDays" 
+                 class="w-20 px-2.5 py-1 text-xs font-bold border rounded-lg bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 text-center">
+          <span class="text-xs text-slate-500 font-medium">hari ke belakang</span>
+        </div>
+
+        <!-- Info Rentang Tanggal Aktif -->
+        <div class="text-[11px] text-slate-500 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex items-center justify-between">
+          <span class="flex items-center space-x-1">
+            <i data-lucide="calendar" class="w-3.5 h-3.5 text-teal-600"></i>
+            <span><b>{{ formatDateIndo(analysisStartDate) }}</b> s/d <b>{{ formatDateIndo(todayStr) }}</b></span>
+          </span>
+          <span class="text-teal-700 font-semibold">{{ analysisFilteredExpenses.length }} transaksi</span>
+        </div>
+
+        <!-- Tombol Aksi Ekspor / Cetak -->
+        <div class="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+          <button @click="printAnalysis" class="flex items-center justify-center space-x-1 py-2 px-2 rounded-xl bg-teal-600 text-white font-bold text-xs shadow-md shadow-teal-600/20 active:scale-95 transition">
+            <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+            <span>Cetak PDF</span>
           </button>
-          <button @click="exportCSV" class="w-full flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-xl bg-slate-800 text-white font-bold text-xs shadow-md active:scale-95 transition">
-            <i data-lucide="sheet" class="w-4 h-4"></i>
-            <span>Download Excel</span>
+          <button @click="copyAnalysisSummary" class="flex items-center justify-center space-x-1 py-2 px-2 rounded-xl bg-slate-800 text-white font-bold text-xs shadow-md active:scale-95 transition">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+            <span>Salin Teks</span>
+          </button>
+          <button @click="exportAnalysisCSV" class="flex items-center justify-center space-x-1 py-2 px-2 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold text-xs active:scale-95 transition border border-slate-200">
+            <i data-lucide="sheet" class="w-3.5 h-3.5 text-emerald-600"></i>
+            <span>Excel</span>
           </button>
         </div>
       </div>
 
-      <!-- Area Laporan Harian (Dicetak ke Kertas / PDF) -->
-      <div id="printStatementArea" class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+      <!-- AREA LAPORAN ANALISIS UTAMA (SIAP CETAK / DILIHAT DI HP) -->
+      <div id="printAnalysisArea" class="space-y-4">
         
-        <div class="print-header mb-4">
-          <div class="flex justify-between items-start">
+        <!-- Header Khusus Print -->
+        <div class="hidden print:block border-b-2 border-slate-900 pb-3 mb-4">
+          <h1 class="text-xl font-extrabold text-slate-900 uppercase">Laporan Analisis Pengeluaran & Ranking Belanja</h1>
+          <p class="text-xs text-slate-600">Evaluasi Arus Kas Pengeluaran DompetKu</p>
+          <p class="text-xs text-slate-500 mt-1">Periode: {{ formatDateIndo(analysisStartDate) }} s/d {{ formatDateIndo(todayStr) }} ({{ analysisDaysCount }} Hari) | Dicetak: {{ todayStr }}</p>
+        </div>
+
+        <!-- 3 KARTU METRIK EKSEKUTIF -->
+        <div class="grid grid-cols-3 gap-2">
+          
+          <!-- Total Pengeluaran -->
+          <div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-200 flex flex-col justify-between">
             <div>
-              <h2 class="text-lg font-bold text-slate-900 uppercase tracking-tight">Laporan Posisi Arus Kas Harian</h2>
-              <p class="text-xs text-slate-600">Catatan Mutasi Saldo & Evaluasi Disiplin Belanja Harian</p>
+              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Total Keluar</p>
+              <p class="text-xs font-black text-rose-600 mt-1 leading-tight">{{ formatRupiah(analysisTotalExpense) }}</p>
             </div>
-            <div class="text-right text-xs text-slate-500">
-              <p>Periode: <b>{{ statementFilterMonth || 'Semua Waktu' }}</b></p>
-              <p>Batas Harian: <b>{{ formatRupiah(state.profile.dailyLimit) }}/hari</b></p>
+            <p class="text-[9px] text-slate-400 mt-1">{{ analysisDaysCount }} hari terakhir</p>
+          </div>
+
+          <!-- Rata-rata per Hari & Status Disiplin -->
+          <div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-200 flex flex-col justify-between"
+               :class="analysisDailyStatus === 'aman' ? 'border-emerald-200' : 'border-rose-200 bg-rose-50/30'">
+            <div>
+              <div class="flex items-center justify-between">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-tight">Rata-rata/Hari</p>
+                <span class="text-[8px] font-black px-1.5 py-0.5 rounded"
+                      :class="analysisDailyStatus === 'aman' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'">
+                  {{ analysisDailyStatus === 'aman' ? 'AMAN' : 'OVER' }}
+                </span>
+              </div>
+              <p class="text-xs font-black text-slate-900 mt-1 leading-tight">{{ formatRupiah(analysisDailyAverage) }}</p>
+            </div>
+            <p class="text-[9px] text-slate-500 mt-1">Batas: {{ formatRupiah(state.profile.dailyLimit) }}/hr</p>
+          </div>
+
+          <!-- Pos Paling Boros (#1) -->
+          <div class="bg-white rounded-2xl p-3 shadow-sm border border-slate-200 flex flex-col justify-between">
+            <div>
+              <p class="text-[10px] font-bold text-amber-600 uppercase tracking-tight">Pos Terbanyak #1</p>
+              <p class="text-xs font-bold text-slate-900 mt-1 truncate leading-tight">
+                {{ analysisTopSpending ? analysisTopSpending.name : '-' }}
+              </p>
+            </div>
+            <p class="text-[9px] font-semibold text-rose-600 mt-1">
+              {{ analysisTopSpending ? formatRupiah(analysisTopSpending.total) : 'Rp 0' }}
+              <span v-if="analysisTopSpending" class="text-slate-400 font-normal">({{ analysisTopSpending.percentage }}%)</span>
+            </p>
+          </div>
+
+        </div>
+
+        <!-- KOTAK INSIGHT & EVALUASI CERDAS -->
+        <div class="bg-gradient-to-r from-teal-50 via-sky-50 to-blue-50 rounded-2xl p-3.5 border border-teal-200/80 shadow-sm flex items-start space-x-2.5">
+          <div class="p-2 rounded-xl bg-teal-600 text-white shrink-0 mt-0.5 shadow-sm">
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+          </div>
+          <div class="text-xs text-slate-700 leading-relaxed">
+            <p class="font-bold text-slate-900 mb-0.5 flex items-center space-x-1">
+              <span>Catatan Analisis Evaluasi</span>
+            </p>
+            <p v-html="analysisInsightText"></p>
+          </div>
+        </div>
+
+        <!-- KOMPOSISI PENGELUARAN (POKOK vs JAJAN vs CICILAN) -->
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+          <h3 class="text-xs font-bold text-slate-900 mb-2 flex items-center justify-between">
+            <span>Komposisi Pengeluaran</span>
+            <span class="text-[10px] font-normal text-slate-400">Porsi Pengeluaran</span>
+          </h3>
+
+          <!-- Progress Bar Gabungan -->
+          <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden flex mb-2.5 shadow-inner">
+            <div :style="{ width: analysisComposition.pokokPct + '%' }" 
+                 class="bg-emerald-500 h-full transition-all duration-500" 
+                 :title="'Pokok: ' + analysisComposition.pokokPct + '%'"></div>
+            <div :style="{ width: analysisComposition.jajanPct + '%' }" 
+                 class="bg-amber-400 h-full transition-all duration-500" 
+                 :title="'Jajan: ' + analysisComposition.jajanPct + '%'"></div>
+            <div :style="{ width: analysisComposition.cicilanPct + '%' }" 
+                 class="bg-rose-500 h-full transition-all duration-500" 
+                 :title="'Cicilan: ' + analysisComposition.cicilanPct + '%'"></div>
+          </div>
+
+          <!-- Rincian Legend -->
+          <div class="grid grid-cols-3 gap-2 text-center text-xs">
+            <div class="p-2 bg-emerald-50/60 rounded-xl border border-emerald-100">
+              <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>
+              <span class="text-[10px] text-emerald-800 font-bold">Pokok</span>
+              <p class="font-extrabold text-slate-900 text-xs mt-0.5">{{ formatRupiah(analysisComposition.pokok) }}</p>
+              <p class="text-[9px] text-emerald-700">{{ analysisComposition.pokokPct }}%</p>
+            </div>
+            <div class="p-2 bg-amber-50/60 rounded-xl border border-amber-100">
+              <span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>
+              <span class="text-[10px] text-amber-800 font-bold">Jajan</span>
+              <p class="font-extrabold text-slate-900 text-xs mt-0.5">{{ formatRupiah(analysisComposition.jajan) }}</p>
+              <p class="text-[9px] text-amber-700">{{ analysisComposition.jajanPct }}%</p>
+            </div>
+            <div class="p-2 bg-rose-50/60 rounded-xl border border-rose-100">
+              <span class="inline-block w-2 h-2 rounded-full bg-rose-500 mr-1"></span>
+              <span class="text-[10px] text-rose-800 font-bold">Cicilan</span>
+              <p class="font-extrabold text-slate-900 text-xs mt-0.5">{{ formatRupiah(analysisComposition.cicilan) }}</p>
+              <p class="text-[9px] text-rose-700">{{ analysisComposition.cicilanPct }}%</p>
             </div>
           </div>
         </div>
 
-        <!-- Rangkuman Saldo -->
-        <div class="grid grid-cols-3 gap-2 text-center p-3 bg-slate-50 rounded-xl mb-4 border border-slate-100">
-          <div>
-            <p class="text-[10px] text-slate-500 font-semibold">Rekening Bank</p>
-            <p class="text-xs font-bold text-blue-600">{{ formatRupiah(balanceRekening) }}</p>
+        <!-- PERINGKAT POS PENGELUARAN TERBANYAK (TOP SPENDING RANKINGS) -->
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 flex items-center space-x-1.5">
+                <span>🏆 Peringkat Pos Pengeluaran Terbanyak</span>
+              </h3>
+              <p class="text-[11px] text-slate-500">Diurutkan dari pos yang paling banyak menyedot uang</p>
+            </div>
+            <span class="text-xs font-semibold text-slate-500">{{ analysisGroupedRankings.length }} Pos Belanja</span>
           </div>
-          <div>
-            <p class="text-[10px] text-slate-500 font-semibold">Cash Dompet</p>
-            <p class="text-xs font-bold text-amber-600">{{ formatRupiah(balanceCash) }}</p>
-          </div>
-          <div>
-            <p class="text-[10px] text-slate-500 font-semibold">Total Uang Kas</p>
-            <p class="text-xs font-bold text-emerald-600">{{ formatRupiah(totalCash) }}</p>
-          </div>
-        </div>
 
-        <!-- Tabel Day-by-Day -->
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr class="bg-slate-100 border-b border-slate-300 text-slate-700">
-                <th class="p-2 font-bold">Tanggal</th>
-                <th class="p-2 font-bold">Saldo Awal</th>
-                <th class="p-2 font-bold text-blue-700">Masuk</th>
-                <th class="p-2 font-bold text-emerald-700">Pokok</th>
-                <th class="p-2 font-bold text-amber-700">Jajan</th>
-                <th class="p-2 font-bold text-rose-700">Cicilan</th>
-                <th class="p-2 font-bold">Saldo Akhir</th>
-                <th class="p-2 font-bold text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200">
-              <tr v-if="dayByDayStatement.length === 0">
-                <td colspan="8" class="text-center py-6 text-slate-400">Tidak ada riwayat transaksi pada periode ini.</td>
-              </tr>
-              <tr v-for="row in dayByDayStatement" :key="row.date" class="hover:bg-slate-50">
-                <td class="p-2 font-bold whitespace-nowrap">{{ formatDateIndo(row.date) }}</td>
-                <td class="p-2 text-slate-600 whitespace-nowrap">{{ formatRupiah(row.startBalance) }}</td>
-                <td class="p-2 text-blue-600 font-semibold whitespace-nowrap">
-                  <span v-if="row.totalIncome > 0">+{{ formatRupiah(row.totalIncome) }}</span>
-                  <span v-else class="text-slate-300">-</span>
-                </td>
-                <td class="p-2 text-emerald-700 whitespace-nowrap">
-                  {{ row.expensePokok > 0 ? formatRupiah(row.expensePokok) : '-' }}
-                </td>
-                <td class="p-2 text-amber-700 whitespace-nowrap">
-                  {{ row.expenseJajan > 0 ? formatRupiah(row.expenseJajan) : '-' }}
-                </td>
-                <td class="p-2 text-rose-700 whitespace-nowrap">
-                  {{ row.expenseCicilan > 0 ? formatRupiah(row.expenseCicilan) : '-' }}
-                </td>
-                <td class="p-2 font-extrabold text-slate-900 whitespace-nowrap">{{ formatRupiah(row.endBalance) }}</td>
-                <td class="p-2 text-center whitespace-nowrap">
-                  <span v-if="row.totalExpense === 0" class="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500">Hemat</span>
-                  <span v-else-if="row.totalExpense <= state.profile.dailyLimit" class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-emerald-800 font-bold">AMAN</span>
-                  <span v-else class="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-800 font-bold">OVER</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+          <!-- Jika Kosong -->
+          <div v-if="analysisGroupedRankings.length === 0" class="text-center py-8 text-slate-400 text-xs">
+            <i data-lucide="check-circle-2" class="w-8 h-8 mx-auto mb-2 text-emerald-400"></i>
+            <p class="font-bold text-slate-700">Tidak ada pengeluaran dalam rentang ini!</p>
+            <p class="text-[11px] text-slate-400 mt-1">Uang Anda tetap utuh selama {{ analysisDaysCount }} hari terakhir.</p>
+          </div>
 
-        <div class="mt-4 pt-3 border-t border-slate-200 text-[10px] text-slate-400 flex justify-between">
-          <span>Dicetak otomatis oleh DompetKu App</span>
-          <span>Dicetak pada: {{ todayStr }}</span>
+          <!-- Daftar Peringkat Pos Belanja -->
+          <div v-else class="space-y-2.5">
+            <div v-for="g in analysisGroupedRankings" :key="g.key" 
+                 class="p-3 rounded-2xl border transition hover:shadow-sm"
+                 :class="expandedGroupKey === g.key ? 'border-teal-400 bg-teal-50/20' : 'border-slate-100 bg-slate-50/50'">
+              
+              <div class="flex items-center justify-between">
+                
+                <!-- Bagian Kiri: Ranking & Icon & Nama -->
+                <div class="flex items-center space-x-2.5">
+                  <!-- Badge Ranking -->
+                  <div class="w-6 h-6 rounded-full flex items-center justify-center font-black text-xs shrink-0"
+                       :class="g.rank === 1 ? 'bg-amber-400 text-amber-950 ring-2 ring-amber-300 shadow-sm' : (g.rank === 2 ? 'bg-slate-300 text-slate-800' : (g.rank === 3 ? 'bg-amber-700/80 text-white' : 'bg-slate-100 text-slate-500'))">
+                    #{{ g.rank }}
+                  </div>
+
+                  <!-- Icon Item -->
+                  <div class="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm"
+                       :class="g.color">
+                    <i :data-lucide="g.icon" class="w-4 h-4"></i>
+                  </div>
+
+                  <!-- Nama & Frekuensi -->
+                  <div>
+                    <h4 class="text-xs font-extrabold text-slate-900 leading-snug">{{ g.name }}</h4>
+                    <p class="text-[10px] text-slate-500 font-medium">
+                      {{ g.count }}x transaksi
+                    </p>
+                  </div>
+                </div>
+
+                <!-- Bagian Kanan: Total & Persentase -->
+                <div class="text-right shrink-0">
+                  <p class="text-xs font-black text-slate-900 leading-snug">{{ formatRupiah(g.total) }}</p>
+                  <p class="text-[10px] font-bold text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200 inline-block">
+                    {{ g.percentage }}% dari total
+                  </p>
+                </div>
+              </div>
+
+              <!-- Bar Persentase Visual -->
+              <div class="w-full bg-slate-200/80 h-1.5 rounded-full overflow-hidden mt-2.5">
+                <div :class="g.barColor" class="h-full rounded-full transition-all duration-500" :style="{ width: g.percentage + '%' }"></div>
+              </div>
+
+              <!-- Tombol Dropdown Rincian Riwayat Transaksi -->
+              <div class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                <button @click="toggleGroupDetail(g.key)" class="text-teal-700 font-bold hover:underline flex items-center space-x-1">
+                  <span>{{ expandedGroupKey === g.key ? 'Tutup Rincian' : 'Lihat Rincian (' + g.count + ')' }}</span>
+                  <i :data-lucide="expandedGroupKey === g.key ? 'chevron-up' : 'chevron-down'" class="w-3 h-3"></i>
+                </button>
+                <span class="text-[10px] text-slate-400">Rata-rata: {{ formatRupiah(Math.round(g.total / g.count)) }}/beli</span>
+              </div>
+
+              <!-- Rincian Transaksi Saat Accordion Terbuka -->
+              <div v-if="expandedGroupKey === g.key" class="mt-2 pt-2 border-t border-slate-200/60 space-y-1.5 animate-in fade-in duration-150">
+                <div v-for="(item, idx) in g.transactions" :key="item.id || idx" 
+                     class="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-100 text-xs">
+                  <div>
+                    <p class="font-bold text-slate-800 text-[11px]">{{ item.note || g.name }}</p>
+                    <p class="text-[10px] text-slate-400">
+                      {{ formatDateIndo(item.date) }} {{ item.time ? '• ' + item.time : '' }} 
+                      <span class="px-1 rounded bg-slate-100 text-slate-600 font-medium ml-1">{{ getWalletName(item.wallet) }}</span>
+                    </p>
+                  </div>
+                  <span class="font-black text-rose-600 text-[11px]">{{ formatRupiah(item.amount) }}</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
         </div>
 
       </div>
@@ -946,6 +1121,48 @@
           </div>
         </div>
 
+        <!-- Tombol Cepat Pilihan Item (Quick Chips) -->
+        <div v-if="txForm.type === 'expense'" class="space-y-1.5">
+          <div class="flex items-center justify-between">
+            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Pilihan Cepat (1-Klik Isi):</label>
+            <span class="text-[9px] text-teal-600 font-bold">Instan & Rapi</span>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5">
+            <button type="button" @click="applyQuickExpense('galon')" class="p-1.5 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-[11px] font-bold text-sky-800 flex flex-col items-center active:scale-95 transition">
+              <span>💧 Galon</span>
+              <span class="text-[9px] text-sky-600 font-normal">5rb</span>
+            </button>
+            <button type="button" @click="applyQuickExpense('bensin')" class="p-1.5 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-[11px] font-bold text-amber-800 flex flex-col items-center active:scale-95 transition">
+              <span>⛽ Bensin</span>
+              <span class="text-[9px] text-amber-600 font-normal">50rb</span>
+            </button>
+            <button type="button" @click="applyQuickExpense('makan')" class="p-1.5 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-[11px] font-bold text-emerald-800 flex flex-col items-center active:scale-95 transition">
+              <span>🍜 Makan</span>
+              <span class="text-[9px] text-emerald-600 font-normal">Pokok</span>
+            </button>
+            <button type="button" @click="applyQuickExpense('jajan')" class="p-1.5 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 text-[11px] font-bold text-orange-800 flex flex-col items-center active:scale-95 transition">
+              <span>☕ Jajan</span>
+              <span class="text-[9px] text-orange-600 font-normal">Kopi</span>
+            </button>
+            <button type="button" @click="applyQuickExpense('cukur')" class="p-1.5 rounded-xl border border-purple-200 bg-purple-50 hover:bg-purple-100 text-[11px] font-bold text-purple-800 flex flex-col items-center active:scale-95 transition">
+              <span>✂️ Cukur</span>
+              <span class="text-[9px] text-purple-600 font-normal">35rb</span>
+            </button>
+            <button type="button" @click="applyQuickExpense('oli')" class="p-1.5 rounded-xl border border-slate-300 bg-slate-100 hover:bg-slate-200 text-[11px] font-bold text-slate-800 flex flex-col items-center active:scale-95 transition">
+              <span>🔧 Oli/Servis</span>
+              <span class="text-[9px] text-slate-600 font-normal">100rb</span>
+            </button>
+            <button type="button" @click="applyQuickExpense('sembako')" class="p-1.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100 text-[11px] font-bold text-teal-800 flex flex-col items-center active:scale-95 transition">
+              <span>🛒 Sembako</span>
+              <span class="text-[9px] text-teal-600 font-normal">Belanja</span>
+            </button>
+            <button type="button" @click="applyQuickExpense('lainnya')" class="p-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-bold text-slate-600 flex flex-col items-center active:scale-95 transition">
+              <span>📝 Bebas</span>
+              <span class="text-[9px] text-slate-400 font-normal">Ketik</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Keterangan Belanja -->
         <div>
           <label class="block text-xs font-semibold text-slate-500 mb-1">Catatan / Keterangan</label>
@@ -1042,11 +1259,11 @@
         <span class="text-[10px]">Beranda</span>
       </button>
 
-      <button @click="activeTab = 'statement'" 
+      <button @click="activeTab = 'analysis'" 
               class="flex flex-col items-center py-1 transition"
-              :class="activeTab === 'statement' ? 'text-teal-600 font-bold' : 'text-slate-400 font-medium'">
-        <i data-lucide="file-text" class="w-5 h-5 mb-1"></i>
-        <span class="text-[10px]">Buku Kas</span>
+              :class="activeTab === 'analysis' ? 'text-teal-600 font-bold' : 'text-slate-400 font-medium'">
+        <i data-lucide="pie-chart" class="w-5 h-5 mb-1"></i>
+        <span class="text-[10px]">Analisis</span>
       </button>
 
       <button @click="activeTab = 'debts'" 
